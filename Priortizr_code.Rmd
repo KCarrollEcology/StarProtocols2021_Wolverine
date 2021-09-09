@@ -1,0 +1,134 @@
+---
+title: "Prioritization"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+read in packages 
+```{r}
+suppressWarnings(library(prioritizr))
+suppressWarnings(library(sp))
+suppressWarnings(library(raster))
+suppressWarnings(library(rgeos))
+suppressWarnings(library(rgdal))
+suppressWarnings(library(sf))
+suppressWarnings(library(sdmvspecies))
+suppressWarnings(library(maptools))
+
+#install.packages("c:/gurobi811/win64/R/gurobi_8.1-1.zip", repos=NULL)
+#suppressWarnings(library(gurobi))
+```
+
+and data
+```{r}
+mt_s3 <- rgdal::readOGR("D:/parcels.shp")
+
+
+
+setwd("D:/extent/")
+###Western US Layers
+
+#centrality
+centrf <- raster("centrality1.tif")
+names(centrf) <- "Centrality" 
+
+
+#genetics
+genf <- raster("genetics1.tif")
+names(genf) <- "Genetics" 
+
+#2010 housing
+house10f <- raster("house20101.tif")
+names(house10f) <- "Housing_2010" 
+
+
+#core size
+coreszf <- raster("coresize1.tif")
+names(coreszf) <- "Core_Size" 
+
+
+
+stk <- stack(coreszf, house10f, genf, centrf)
+plot(stk)
+
+
+con<- crop(stk, mt_s3)
+plot(con)
+```
+
+problems
+```{r}
+
+p10_c <- problem(mt_s3, features = con,
+              cost_column = "value") %>%
+      add_min_set_objective() %>%
+      add_relative_targets(0.10) %>%
+      add_binary_decisions() %>%
+      add_gurobi_solver(gap = 0)
+presolve_check(p10_c)
+
+
+p15_c <- problem(mt_s3, features = con,
+              cost_column = "value") %>%
+      add_min_set_objective() %>%
+      add_relative_targets(0.15) %>%
+   add_boundary_penalties(penalty = 500, edge_factor = 0.5) %>%
+      add_binary_decisions() %>%
+      add_gurobi_solver(gap = 0)
+
+
+p20_c <- problem(mt_s3, features = con,
+              cost_column = "value") %>%
+      add_min_set_objective() %>%
+      add_relative_targets(0.20) %>%
+   add_boundary_penalties(penalty = 500, edge_factor = 0.5) %>%
+      add_binary_decisions() %>%
+      add_gurobi_solver(gap = 0)
+
+s10_c <- solve(p10_c)
+s15_c <- solve(p15_c)
+s20_c <- solve(p20_c)
+
+
+rc10_c <- p10_c %>%
+      add_default_solver(gap = 0, verbose = FALSE) %>%
+      replacement_cost(s10_c[, "solution_1"])
+rc15_c <- p15_c %>%
+      add_default_solver(gap = 0, verbose = FALSE) %>%
+      replacement_cost(s15_c[, "solution_1"])
+rc20_c <- p20_c %>%
+      add_default_solver(gap = 0, verbose = FALSE) %>%
+      replacement_cost(s20_c[, "solution_1"])
+
+
+s10_c <- s10_c[ which(s10_c$solution_1 == 1 ),]
+s15_c <- s15_c[ which(s15_c$solution_1 == 1 ),]
+s20_c <- s20_c[ which(s20_c$solution_1 == 1 ),]
+
+writeOGR(s10_c, dsn="D:/LE_2020/OptOutput/solve10_c.shp", driver="ESRI Shapefile", layer = "solution_1")
+writeOGR(s15_c, dsn="D:/LE_2020/OptOutput/solve15_c.shp", driver="ESRI Shapefile", layer = "solution_1")
+writeOGR(s20_c, dsn="D:/LE_2020/OptOutput/solve20_c.shp", driver="ESRI Shapefile", layer = "solution_1")
+
+
+
+
+# set infinite values as 1.09 so we can plot them
+rc10_c$rc[rc10_c$rc > 100] <- 1.09
+rc15_c$rc[rc15_c$rc > 100] <- 1.09
+rc20_c$rc[rc20_c$rc > 100] <- 1.09
+
+
+
+writeOGR(rc10_c, dsn="D:/rc10_c.shp", driver="ESRI Shapefile", layer = "rc")
+
+
+writeOGR(rc15_c, dsn="D:/rc15_c.shp", driver="ESRI Shapefile", layer = "rc")
+
+
+writeOGR(rc20_c, dsn="D:/rc20_c.shp", driver="ESRI Shapefile", layer = "rc")
+
+```
+

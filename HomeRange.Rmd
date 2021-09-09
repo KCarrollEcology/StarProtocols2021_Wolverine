@@ -1,0 +1,104 @@
+---
+title: "Wolverine Home Range Estimate Methods"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+call packages
+```{r}
+library(ade4)
+library(raster)
+library(sp)
+library(adehabitatHR)
+library(readr)
+library(GISTools)
+library(rgdal)
+library(spdep)
+library(gstat)
+library(maptools)
+library(rgdal)
+```
+Set Working Directory
+Read in the wolverine data
+Subset
+Make a spatial object(s) using coordinates
+```{r}
+gulo<- read.csv("D:/Residents.csv")
+gulo<-na.omit(gulo)
+head(gulo)
+unique(gulo$ID)
+
+#make ID a factor
+gulo2$ID <- factor(gulo2$ID)
+summary(gulo2$ID)
+
+gulo2$X <- gulo2$POINT_X
+gulo2$Y <- gulo2$POINT_Y
+
+coordinates(gulo2) <- ~X+Y
+```
+
+Look at locations of animals
+```{r}
+plot(gulo2)
+
+plot(gulo2, col=gulo$ID)
+```
+
+
+mcp
+```{r}
+
+cp <- mcp(gulo2[,5], percent=95)
+cp2 <- mcp(gulo2[,5], percent=100)
+plot(cp)
+
+```
+
+kernelUD
+```{r}
+kud <- kernelUD(gulo2[,5], h="href")
+image(kud)
+#smoothing parameter
+kud[[1]]@h
+kudl <- kernelUD(gulo2[,5], h="LSCV")
+image(kudl)
+
+par(mar=c(1,1,1,1))
+plotLSCV(kudl)
+```
+
+get the home range estimates from the kde
+```{r}
+homerange <- getverticeshr(kud,percent = 95)
+class(homerange)
+plot(homerange, col=1:6)
+summary(homerange)
+homerange2<-as.data.frame(homerange)
+
+rgdal::writeOGR(homerange,  "D:/HomeRange",  , driver="ESRI Shapefile",overwrite_layer=TRUE)
+writePolyShape(homerange, "D:/HomeRange/hrnew")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

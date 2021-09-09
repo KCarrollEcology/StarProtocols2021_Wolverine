@@ -1,0 +1,228 @@
+---
+title: "RSF"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Read in data and add packages
+```{r}
+require(lme4)
+require(lmerTest)
+require(nlme)
+require(readr)
+require(car)
+require(effects)
+require(MuMIn)
+require(MASS)
+require(multcomp)
+require(car)
+require(emmeans)
+require(multcompView)
+library(ggplot2)
+require(lsmeans)
+library(ggExtra)
+library(gapminder)
+library(ggcorrplot)
+library(vcd)
+library(plyr)
+library(scales)
+require(lmtest)
+require(geoR)
+library(gstat)
+library(sp)
+library(nlme) 
+require(geosphere)
+require(dplyr)
+require(sf)
+require(lattice)
+library(reshape2)
+library(raster)
+
+```
+
+
+read in data 
+```{r}
+gulo <- read_csv("D:/UA_21_2_20.csv")
+
+```
+
+Make sure categorical variables are treated as categorical
+```{r}
+head(gulo) 
+gulo$UA<-factor(gulo$UA)
+gulo$ID<-factor(gulo$ID)
+gulo$landform<-factor(gulo$landform)
+gulo$veg<-factor(gulo$veg)
+```
+
+```{r}
+spatialgulo<-gulo
+coordinates(spatialgulo) <- ~POINT_X+POINT_Y
+spatialgulo$UA<-factor(spatialgulo$UA)
+spatialgulo$landform<-factor(spatialgulo$landform)
+spatialgulo$veg<-factor(spatialgulo$veg)
+
+
+summary(gulo)
+
+#check that the points plot well
+plot(spatialgulo)
+
+```
+
+Full Model and check
+```{r}
+gulo<-na.omit(gulo)
+set.seed(123)
+n <- nrow(gulo)
+shuffle <- gulo[sample(n),]
+train_indices <- 1:round(0.7 * n)
+train <- shuffle[train_indices, ]
+test <- shuffle[-train_indices, ]
+
+train$UA<-factor(train$UA)
+train$landform<-factor(train$landform)
+train$veg<-factor(train$veg)
+train$ID<-factor(train$ID)
+
+
+test$UA<-factor(test$UA)
+test$landform<-factor(test$landform)
+test$veg<-factor(test$veg)
+test$ID<-factor(test$ID)
+
+head(train)
+
+```
+
+
+check for corr in data 
+```{r}
+names(gulo)
+#cor(gulo$dhital_s,gulo$veg)
+cor(gulo$dhital_s,gulo$hist_swe_s)
+cor(gulo$dhital_s,gulo$lae_s)
+#cor(gulo$dhital_s,gulo$landform)
+cor(gulo$dhital_s,gulo$Human)
+#cor(gulo$Human,gulo$veg)
+#cor(gulo$landform,gulo$veg)
+#cor(gulo$lae_s,gulo$veg)
+#cor(gulo$hist_swe_s,gulo$veg)
+#cor(gulo$hist_swe_s,gulo$landform)
+cor(gulo$hist_swe_s,gulo$lae_s)
+#cor(gulo$landform,gulo$lae_s)
+
+```
+
+
+
+no evidence of spatial first order trends in the data
+
+```{r}
+
+#plot(variogram(UA~POINT_X*POINT_Y, data=spatialgulo))
+#plot(variogram(residuals~1,spatialgulo), pch=16, col="darkred", cex=1.5)
+
+```
+
+
+Model Selection - step selection or 
+```{r}
+names(train)
+
+m1 <- glmer(factor(UA)~  lae_s + veg + dhital_s + hist_swe_s  + Human + landform + 1|ID, binomial(link = "logit"), data=train)
+
+
+step <- stepAIC(m1, direction = "both")
+step
+
+md <- glm(factor(UA)~  lae_s + factor(veg) + dhital_s + hist_swe_s  + Human + landform  + factor(ID), family=binomial, data=train)
+ options(na.action = na.fail)
+
+step <- stepAIC(md, direction = "both")
+step
+
+md2 <- glm(factor(UA)~lae_s + factor(veg) + dhital_s + hist_swe_s  + Human + factor(landform), family=binomial, data=train)
+
+step <- stepAIC(md2, direction = "both")
+step
+
+null<- glm(factor(UA)~1, family = binomial, data = train, na.action = "na.omit")
+null2 <- glmer(factor(UA)~  1 + 1|ID, binomial(link = "logit"), data=train)
+
+AIC(null, null2, md2, m1, md)
+
+vif(md2)
+
+crPlots(md2)
+```
+
+
+model validation
+```{r}
+test$pred1 <- predict(md2, newdata=test, type="response")
+unique(unlist(test$UA))
+test$cutoff1 <- ifelse (test$pred1>0.5,"U","A") 
+test$bin<-test$UA
+example_acc1<- sum(test$bin==test$cutoff1, na.rm = T)/nrow(test)
+example_acc1
+## gives 0.858281 accuracy
+```
+
+
+
+```{r}
+
+test$bin <- factor(test$bin)
+test$cutoff1 <- factor(test$cutoff1)
+summary(test)
+
+#is present predict present
+test$finalPP <- ifelse (test$bin== "U" & test$cutoff1== "U", "UU", 0)
+#is present predict absent
+test$finalPA <- ifelse (test$bin== "U" & test$cutoff1== "A", "UA", 0)
+#is absent predict absent
+test$finalAA <- ifelse (test$bin== "A" & test$cutoff1== "A", "AA", 0)
+#is absent predict present
+test$finalAP <- ifelse (test$bin== "A" & test$cutoff1== "U", "AU", 0)
+
+test$finalnest <- ifelse(test$bin== "P" & test$cutoff1== "P", "PP", ifelse (test$bin== "P" & test$cutoff1== "A", "PA",ifelse (test$bin== "A" & test$cutoff1== "A", "AA", "AP")))
+
+
+test$pres <- ifelse(test$bin== "U" & test$cutoff1== "U", "Correct", ifelse (test$bin== "U" & test$cutoff1== "A", "Incorrect",ifelse (test$bin== "A" & test$cutoff1== "A", NA, NA)))
+test1<-na.omit(test)
+
+unique(table(test$finalnest))
+unique(unlist(test$finalnest))
+
+#model is correct
+test$finalRIGHT <- ifelse (test$bin== "A" & test$cutoff1== "A"| test$bin== "U" & test$cutoff1== "U", "CORRECT", "INCORRECT")
+#is absent predict present
+test$finalWRONG <- ifelse (test$bin== "A" & test$cutoff1== "U"|test$bin== "U" & test$cutoff1== "A", 1, 0)
+#model is incorrect
+
+hist(test$finalWRONG)
+
+par(mfrow=c(1,2))
+plot(factor(test$bin)~factor(test$finalRIGHT), ylab = "Presence vs. Absence", xlab = "Prediction", main="", col = c("cadetblue3", "aliceblue"))
+plot(factor(test1$pres), ylab = "Frequency",xlab= "Observed vs. Predicted", col=c("orchid", "ivory4" ))
+
+
+train$residuals<-residuals(md2)
+library(sp)
+coordinates(train)= ~ POINT_X + POINT_Y
+plot(train$POINT_X, train$POINT_Y)
+bubble(train, zcol = "residuals", fill = TRUE, do.sqrt = FALSE, maxsize =3)
+
+TheVariogram=variogram(residuals~1, data=train)
+plot(TheVariogram, pch = 19, col = "black")
+
+hist(test$pred1)
+
+#write.csv(gulo, "D:/PREDICT.csv")
+```
